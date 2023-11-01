@@ -154,6 +154,8 @@ class AuthJWT(AuthConfig):
             raise TypeError("algorithm must be a string")
         if user_claims and not isinstance(user_claims, dict):
             raise TypeError("user_claims must be a dictionary")
+        if headers and not isinstance(headers, dict):
+            raise TypeError("headers must be a dictionary")
 
         # Data section
         reserved_claims = {
@@ -191,7 +193,7 @@ class AuthJWT(AuthConfig):
             secret_key,
             algorithm=algorithm,
             headers=headers
-        ).decode('utf-8')
+        )
 
     def _has_token_in_denylist_callback(self) -> bool:
         """
