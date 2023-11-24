@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fastapi_jwt_auth"
-version = "0.6.0"
+version = "0.7.0"
 description = ""
 authors = ["Atsushi Fukuda"]
 
