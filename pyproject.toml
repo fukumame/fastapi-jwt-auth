@@ -5,9 +5,9 @@ description = ""
 authors = ["Atsushi Fukuda"]
 
 [tool.poetry.dependencies]
-python = ">=3.7"
+python = ">=3.8"
 fastapi = ">=0.61.0"
-pyjwt = "2.4.0"
+pyjwt = "^2.8.0"
 
 [tool.poetry.dev-dependencies]
 cryptography = ">=3.0,<36.0.0"
