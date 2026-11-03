@@ -20,7 +20,7 @@ class LoadConfig(BaseModel):
     authjwt_decode_issuer: Optional[StrictStr] = None
     authjwt_decode_audience: Optional[Union[StrictStr,Sequence[StrictStr]]] = None
     authjwt_denylist_enabled: Optional[StrictBool] = False
-    authjwt_denylist_token_checks: Optional[Sequence[StrictStr]] = {'access','refresh'}
+    authjwt_denylist_token_checks: Optional[Set[StrictStr]] = {'access','refresh'}
     authjwt_header_name: Optional[StrictStr] = "Authorization"
     authjwt_header_type: Optional[StrictStr] = "Bearer"
     authjwt_access_token_expires: Optional[Union[StrictBool,StrictInt,timedelta]] = timedelta(minutes=15)
@@ -42,7 +42,7 @@ class LoadConfig(BaseModel):
     authjwt_refresh_csrf_cookie_path: Optional[StrictStr] = "/"
     authjwt_access_csrf_header_name: Optional[StrictStr] = "X-CSRF-Token"
     authjwt_refresh_csrf_header_name: Optional[StrictStr] = "X-CSRF-Token"
-    authjwt_csrf_methods: Optional[Sequence[StrictStr]] = {'POST','PUT','PATCH','DELETE'}
+    authjwt_csrf_methods: Optional[Set[StrictStr]] = {'POST','PUT','PATCH','DELETE'}
 
     @field_validator('authjwt_access_token_expires')
     def validate_access_token_expires(cls, v):
@@ -56,8 +56,11 @@ class LoadConfig(BaseModel):
             raise ValueError("The 'authjwt_refresh_token_expires' only accept value False (bool)")
         return v
 
+    # pydantic v2 also calls the validators for None, so return None as it is (same as pydantic v1)
     @field_validator('authjwt_denylist_token_checks')
     def validate_denylist_token_checks(cls, v):
+        if v is None:
+            return v
         for item in v:
             if item not in ['access', 'refresh']:
                 raise ValueError("The 'authjwt_denylist_token_checks' must be between 'access' or 'refresh'")
@@ -65,6 +68,8 @@ class LoadConfig(BaseModel):
 
     @field_validator('authjwt_token_location')
     def validate_token_location(cls, v):
+        if v is None:
+            return v
         for location in v:
             if location not in ['headers', 'cookies']:
                 raise ValueError("The 'authjwt_token_location' must be between 'headers' or 'cookies'")
@@ -72,17 +77,20 @@ class LoadConfig(BaseModel):
 
     @field_validator('authjwt_cookie_samesite')
     def validate_cookie_samesite(cls, v):
-        for item in v:
-            if item not in ['strict', 'lax', 'none']:
-                raise ValueError("The 'authjwt_cookie_samesite' must be between 'strict', 'lax', 'none'")
+        # The value is one string, so do not check it one character at a time
+        if v is not None and v not in ['strict', 'lax', 'none']:
+            raise ValueError("The 'authjwt_cookie_samesite' must be between 'strict', 'lax', 'none'")
         return v
 
     @field_validator('authjwt_csrf_methods')
     def validate_csrf_methods(cls, v):
+        if v is None:
+            return v
         for item in v:
             if item.upper() not in {"GET", "HEAD", "POST", "PUT", "DELETE", "PATCH"}:
                 raise ValueError("The 'authjwt_csrf_methods' must be between http request methods")
-        return v.upper()
+        # Make each method upper case (the value is a set, not one string)
+        return {item.upper() for item in v}
 
     class Config:
         str_min_length = 1

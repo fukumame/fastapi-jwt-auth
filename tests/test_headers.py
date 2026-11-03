@@ -5,7 +5,7 @@ from fastapi import FastAPI, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from typing import Optional
-from pydantic import BaseSettings
+from pydantic import BaseModel
 
 @pytest.fixture(scope='function')
 def client():
@@ -83,7 +83,7 @@ def test_get_jwt_headers_from_request(client, Authorize):
     assert response.json()['refresh'] == 'foo'
 
 def test_custom_header_name(client,Authorize):
-    class HeaderName(BaseSettings):
+    class HeaderName(BaseModel):
         authjwt_secret_key: str = "secret"
         authjwt_header_name: str = "Foo"
 
@@ -110,7 +110,7 @@ def test_custom_header_name(client,Authorize):
     AuthJWT._header_name = "Authorization"
 
 def test_custom_header_type(client,Authorize):
-    class HeaderType(BaseSettings):
+    class HeaderType(BaseModel):
         authjwt_secret_key: str = "secret"
         authjwt_header_type: str = "JWT"
 
@@ -128,7 +128,7 @@ def test_custom_header_type(client,Authorize):
     assert response.status_code == 200
     assert response.json() == {'hello':'world'}
 
-    class HeaderTypeNone(BaseSettings):
+    class HeaderTypeNone(BaseModel):
         authjwt_secret_key: str = "secret"
         authjwt_header_type: Optional[str] = None
 
