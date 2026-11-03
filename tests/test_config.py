@@ -2,7 +2,7 @@ import pytest, os, jwt
 from fastapi_jwt_auth import AuthJWT
 from fastapi import FastAPI, Depends
 from fastapi.testclient import TestClient
-from pydantic import BaseSettings, ValidationError
+from pydantic import BaseModel, ValidationError
 from typing import Sequence, Optional
 from datetime import timedelta
 
@@ -60,7 +60,7 @@ def test_default_config():
     assert AuthJWT._csrf_methods == {'POST','PUT','PATCH','DELETE'}
 
 def test_token_expired_false(Authorize):
-    class TokenFalse(BaseSettings):
+    class TokenFalse(BaseModel):
         authjwt_secret_key: str = "testing"
         authjwt_access_token_expires: bool = False
         authjwt_refresh_token_expires: bool = False
@@ -70,10 +70,10 @@ def test_token_expired_false(Authorize):
         return TokenFalse()
 
     access_token = Authorize.create_access_token(subject=1)
-    assert 'exp' not in jwt.decode(access_token,"testing",algorithms="HS256")
+    assert 'exp' not in jwt.decode(access_token,"testing",algorithms="HS256",options={"verify_sub": False})
 
     refresh_token = Authorize.create_refresh_token(subject=1)
-    assert 'exp' not in jwt.decode(refresh_token,"testing",algorithms="HS256")
+    assert 'exp' not in jwt.decode(refresh_token,"testing",algorithms="HS256",options={"verify_sub": False})
 
 def test_secret_key_not_exist(client,Authorize):
     AuthJWT._secret_key = None
@@ -90,7 +90,7 @@ def test_secret_key_not_exist(client,Authorize):
 
 def test_denylist_enabled_without_callback(client):
     # set authjwt_secret_key for create token
-    class SettingsOne(BaseSettings):
+    class SettingsOne(BaseModel):
         authjwt_secret_key: str = "secret-key"
         # AuthJWT denylist won't trigger if value not True
         authjwt_denylist_enabled: bool = False
@@ -106,7 +106,7 @@ def test_denylist_enabled_without_callback(client):
     response = client.get('/protected',headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
 
-    class SettingsTwo(BaseSettings):
+    class SettingsTwo(BaseModel):
         authjwt_secret_key: str = "secret-key"
         authjwt_denylist_enabled: bool = True
         authjwt_denylist_token_checks: list = ["access"]
@@ -130,7 +130,7 @@ def test_load_env_from_outside():
         PUBLIC_KEY = f.read().strip()
 
     # correct data
-    class Settings(BaseSettings):
+    class Settings(BaseModel):
         authjwt_token_location: list = ['cookies']
         authjwt_secret_key: str = "testing"
         authjwt_public_key: str = PUBLIC_KEY
@@ -170,7 +170,7 @@ def test_load_env_from_outside():
     def get_valid_settings():
         return Settings()
 
-    assert AuthJWT._token_location == ['cookies']
+    assert AuthJWT._token_location == {'cookies'}
     assert AuthJWT._secret_key == "testing"
     assert AuthJWT._public_key == PUBLIC_KEY
     assert AuthJWT._private_key == PRIVATE_KEY
@@ -180,7 +180,7 @@ def test_load_env_from_outside():
     assert AuthJWT._encode_issuer == "urn:foo"
     assert AuthJWT._decode_issuer == "urn:foo"
     assert AuthJWT._decode_audience == 'urn:foo'
-    assert AuthJWT._denylist_token_checks == ['refresh']
+    assert AuthJWT._denylist_token_checks == {'refresh'}
     assert AuthJWT._denylist_enabled is False
     assert AuthJWT._header_name == "Auth-Token"
     assert AuthJWT._header_type is None
@@ -203,7 +203,7 @@ def test_load_env_from_outside():
     assert AuthJWT._refresh_csrf_cookie_path == "/refresh-csrf"
     assert AuthJWT._access_csrf_header_name == "ACCESS-CSRF-Token"
     assert AuthJWT._refresh_csrf_header_name == "REFRESH-CSRF-Token"
-    assert AuthJWT._csrf_methods == ['POST']
+    assert AuthJWT._csrf_methods == {'POST'}
 
     with pytest.raises(TypeError,match=r"Config"):
         @AuthJWT.load_config
@@ -401,3 +401,36 @@ def test_load_env_from_outside():
         @AuthJWT.load_config
         def get_invalid_csrf_methods_value():
             return [("authjwt_csrf_methods",['posts'])]
+
+def test_cookie_samesite_and_set_values():
+    # Before the fix, the samesite value was checked one character at a time, so every value failed
+    for value in ['strict','lax','none']:
+        @AuthJWT.load_config
+        def get_samesite():
+            return [("authjwt_secret_key","secret"),("authjwt_cookie_samesite",value)]
+
+        assert AuthJWT._cookie_samesite == value
+
+    # A list and a set are both accepted, and each method becomes upper case
+    @AuthJWT.load_config
+    def get_csrf_methods_list():
+        return [("authjwt_secret_key","secret"),("authjwt_csrf_methods",['post','put'])]
+
+    assert AuthJWT._csrf_methods == {'POST','PUT'}
+
+    @AuthJWT.load_config
+    def get_csrf_methods_set():
+        return [("authjwt_secret_key","secret"),("authjwt_csrf_methods",{'delete'})]
+
+    assert AuthJWT._csrf_methods == {'DELETE'}
+
+    @AuthJWT.load_config
+    def get_denylist_token_checks_set():
+        return [("authjwt_secret_key","secret"),("authjwt_denylist_token_checks",{'access'})]
+
+    assert AuthJWT._denylist_token_checks == {'access'}
+
+    # Go back to the default values for the other tests
+    @AuthJWT.load_config
+    def get_default():
+        return [("authjwt_secret_key","secret")]

@@ -1,10 +1,10 @@
-import pytest, jwt, time, os
+import pytest, jwt, time, os, base64, json
 from fastapi_jwt_auth import AuthJWT
 from fastapi_jwt_auth.exceptions import AuthJWTException
 from fastapi import FastAPI, Depends, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
-from pydantic import BaseSettings
+from pydantic import BaseModel
 
 @pytest.fixture(scope='function')
 def client():
@@ -54,7 +54,7 @@ def encoded_token(default_access_token):
     return jwt.encode(default_access_token,'secret-key',algorithm='HS256')
 
 def test_verified_token(client,encoded_token,Authorize):
-    class SettingsOne(BaseSettings):
+    class SettingsOne(BaseModel):
         AUTHJWT_SECRET_KEY: str = "secret-key"
         AUTHJWT_ACCESS_TOKEN_EXPIRES: int = 2
 
@@ -83,11 +83,13 @@ def test_verified_token(client,encoded_token,Authorize):
     assert response.status_code == 422
     assert response.json() == {'detail': 'The specified alg value is not allowed'}
 
-    class SettingsTwo(BaseSettings):
+    class SettingsTwo(BaseModel):
         AUTHJWT_SECRET_KEY: str = "secret-key"
         AUTHJWT_ACCESS_TOKEN_EXPIRES: int = 1
         AUTHJWT_REFRESH_TOKEN_EXPIRES: int = 1
-        AUTHJWT_DECODE_LEEWAY: int = 2
+        # The token expires after 1 second and the test waits 2 seconds.
+        # A leeway of 2 seconds sometimes failed because "exp" is cut to whole seconds, so use 4 seconds.
+        AUTHJWT_DECODE_LEEWAY: int = 4
 
     @AuthJWT.load_config
     def get_settings_two():
@@ -177,7 +179,8 @@ def test_invalid_aud_and_missing_aud(client,Authorize,token_aud):
     access_token = Authorize.create_access_token(subject=1,audience=token_aud)
     response = client.get('/protected',headers={'Authorization': f"Bearer {access_token}"})
     assert response.status_code == 422
-    assert response.json() == {'detail':'Invalid audience'}
+    # The message depends on the PyJWT version
+    assert response.json()['detail'] in ('Invalid audience', "Audience doesn't match")
 
     refresh_token = Authorize.create_refresh_token(subject=1)
     response = client.get('/refresh_token',headers={'Authorization':f"Bearer {refresh_token}"})
@@ -188,7 +191,7 @@ def test_invalid_aud_and_missing_aud(client,Authorize,token_aud):
         AuthJWT._decode_audience = None
 
 def test_invalid_decode_algorithms(client,Authorize):
-    class SettingsAlgorithms(BaseSettings):
+    class SettingsAlgorithms(BaseModel):
         authjwt_secret_key: str = "secret"
         authjwt_decode_algorithms: list = ['HS384','RS256']
 
@@ -216,7 +219,7 @@ def test_valid_asymmetric_algorithms(client,Authorize):
     with open(public_txt) as f:
         PUBLIC_KEY = f.read().strip()
 
-    class SettingsAsymmetric(BaseSettings):
+    class SettingsAsymmetric(BaseModel):
         authjwt_algorithm: str = "RS256"
         authjwt_secret_key: str = "secret"
         authjwt_private_key: str = PRIVATE_KEY
@@ -237,7 +240,7 @@ def test_valid_asymmetric_algorithms(client,Authorize):
     assert response.json() == {'hello':'world'}
 
 def test_invalid_asymmetric_algorithms(client,Authorize):
-    class SettingsAsymmetricOne(BaseSettings):
+    class SettingsAsymmetricOne(BaseModel):
         authjwt_algorithm: str = "RS256"
 
     @AuthJWT.load_config
@@ -253,7 +256,7 @@ def test_invalid_asymmetric_algorithms(client,Authorize):
     with open(private_txt) as f:
         PRIVATE_KEY = f.read().strip()
 
-    class SettingsAsymmetricTwo(BaseSettings):
+    class SettingsAsymmetricTwo(BaseModel):
         authjwt_algorithm: str = "RS256"
         authjwt_private_key: str = PRIVATE_KEY
 
@@ -269,3 +272,21 @@ def test_invalid_asymmetric_algorithms(client,Authorize):
     AuthJWT._public_key = None
     AuthJWT._algorithm = "HS256"
     AuthJWT._secret_key = "secret"
+
+def test_reject_alg_not_allowed_in_header(client):
+    @AuthJWT.load_config
+    def get_settings():
+        return [("authjwt_secret_key","secret-key")]
+
+    def token_with_header(header):
+        def encode(data):
+            return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
+        return "{}.{}.c2lnbmF0dXJl".format(encode(header),encode({'sub':'test','type':'access'}))
+
+    # The key is chosen by the alg in the header.
+    # Before the fix, these headers caused an error when the key was chosen, and the server returned 500.
+    for header in [{'alg':'none'},{'alg':'XYZ'},{'alg':'RS256'},{'typ':'JWT'}]:
+        token = token_with_header(header)
+        response = client.get('/protected',headers={"Authorization":f"Bearer {token}"})
+        assert response.status_code == 422
+        assert response.json() == {'detail': 'The specified alg value is not allowed'}

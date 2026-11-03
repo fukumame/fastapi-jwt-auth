@@ -437,3 +437,18 @@ def test_cookie_protected(url,client):
         response = client.post(url,headers={"X-CSRF-Token": csrf_refresh})
     assert response.status_code == 200
     assert response.json() == {'hello': 1}
+
+def test_set_cookie_samesite(client):
+    @AuthJWT.load_config
+    def get_cookie_samesite():
+        return [("authjwt_token_location",{'cookies'}),("authjwt_secret_key","secret"),("authjwt_cookie_samesite","lax")]
+
+    response = client.get('/all-token')
+    cookies = response.headers.get_list('set-cookie')
+    assert len(cookies) == 4
+    assert all('samesite=lax' in cookie.lower() for cookie in cookies)
+
+    # Go back to the default values for the other tests
+    @AuthJWT.load_config
+    def get_default():
+        return [("authjwt_token_location",{'cookies'}),("authjwt_secret_key","secret")]

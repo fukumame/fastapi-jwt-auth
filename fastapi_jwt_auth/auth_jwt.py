@@ -653,8 +653,14 @@ class AuthJWT(AuthConfig):
         except Exception as err:
             raise InvalidHeaderError(status_code=422,message=str(err))
 
+        # The key is chosen by the "alg" in the header, so check the alg before choosing the key.
+        # Without this check, "none", an unknown alg or no alg caused an error and the server returned 500.
+        algorithm = unverified_headers.get('alg')
+        if algorithm not in algorithms:
+            raise JWTDecodeError(status_code=422,message="The specified alg value is not allowed")
+
         try:
-            secret_key = self._get_secret_key(unverified_headers['alg'],"decode")
+            secret_key = self._get_secret_key(algorithm,"decode")
         except Exception:
             raise
 
@@ -665,7 +671,9 @@ class AuthJWT(AuthConfig):
                 issuer=issuer,
                 audience=self._decode_audience,
                 leeway=self._decode_leeway,
-                algorithms=algorithms
+                algorithms=algorithms,
+                # PyJWT 2.10 and later only accept a string "sub", but this library also accepts an int subject
+                options={"verify_sub": False}
             )
         except Exception as err:
             raise JWTDecodeError(status_code=422,message=str(err))
